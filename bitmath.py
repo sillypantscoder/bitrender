@@ -32,6 +32,7 @@ def read_math(b: bitseq.ReadableBuffer) -> list or int or str:
 
 def write_math(l: list or int or str) -> str:
 	if isinstance(l, int):
+		if l > 4095: print(f"--- ERROR: {l} is too big to fit in 12 bits")
 		return "10" + bin(l)[2:].rjust(12, "0")
 	if isinstance(l, str):
 		return "11" + bitseq.writeString(l)
@@ -64,7 +65,11 @@ def exec_math(l: list or int, variables: "dict[str, int]" = {}) -> int:
 		elif l[0] == "round": return round(x(1))
 		else: return 0
 	elif isinstance(l, str):
-		return variables[l]
+		if l not in variables:
+			print(f"--- ERROR: Variable {l} doesn't exist! Using 0 as default value.")
+			return 0
+		else:
+			return variables[l]
 	else:
 		return l
 

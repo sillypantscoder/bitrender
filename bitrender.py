@@ -16,6 +16,7 @@ def read_modification(b: bitseq.ReadableBuffer) -> list:
 		op: tuple = MODS[int(b.read(4), 2)]
 		r: list = []
 		r.append(op[0])
+		#print("Loading mod " + op[0])
 		for c in op[1]:
 			if c == "b":
 				r.append(int(b.read(8), 2))
@@ -27,11 +28,17 @@ def read_modification(b: bitseq.ReadableBuffer) -> list:
 					coords.append([bitmath.read_math(b), bitmath.read_math(b)])
 				r.append(coords)
 		return ["mod", r]
+	elif modtype == "01":
+		# Set var
+		#print("Loading set")
+		return ["set", bitseq.readString(b), bitmath.read_math(b)]
 	elif modtype == "10":
 		# If
+		#print("Loading if")
 		return ["if", bitmath.read_math(b), bitseq.readString(b)]
 	elif modtype == "11":
 		# Tag
+		#print("Loading tag")
 		return ["tag", bitseq.readString(b)]
 	else: return [""]
 
@@ -39,7 +46,7 @@ def write_modification(l: list) -> str:
 	if l[0] == "mod":
 		mod = l[1]
 		modn = [x[0] for x in MODS].index(mod[0])
-		print(f"Saving mod {MODS[modn][0]}")
+		#print(f"Saving mod {MODS[modn][0]}")
 		r = bin(modn)[2:].rjust(4, "0")
 		if len(MODS[modn][1]) != len(mod) - 1:
 			print(f"--- ERROR: Mod {MODS[modn][0]} requires {len(MODS[modn][1])} arguments but got {len(mod) - 1}")
@@ -50,8 +57,8 @@ def write_modification(l: list) -> str:
 					print(f"--- ERROR: Argument {c} of mod {MODS[modn][0]} on is not of type int")
 				r += bin(mod[c])[2:].rjust(8, "0")
 			elif t == "i":
-				if not isinstance(mod[c], (list, int)):
-					print(f"--- ERROR: Argument {c} of mod {MODS[modn][0]} is not of type list|int")
+				if not isinstance(mod[c], (list, int, str)):
+					print(f"--- ERROR: Argument {c} of mod {MODS[modn][0]} is not of type list|int|str")
 				r += bitmath.write_math(mod[c])
 			elif t == "p":
 				if not isinstance(mod[c], list):
@@ -62,21 +69,25 @@ def write_modification(l: list) -> str:
 					r += bitmath.write_math(i[1])
 				r += "1"
 		return "00" + r
+	elif l[0] == "set":
+		#print("Saving set")
+		return "01" + bitseq.writeString(l[1]) + bitmath.write_math(l[2])
 	elif l[0] == "if":
-		print("Saving if")
+		#print("Saving if")
 		return "10" + bitmath.write_math(l[1]) + bitseq.writeString(l[2])
 	elif l[0] == "tag":
-		print("Saving tag")
+		#print("Saving tag")
 		return "11" + bitseq.writeString(l[1])
 	else: return ""
 
-def exec_modification(l: list, s: pygame.Surface) -> pygame.Surface:
+def exec_modification(l: list, s: pygame.Surface, variables: "dict[str, int]" = {}) -> pygame.Surface:
 	newS = s.copy()
-	if l[0] == "rect": pygame.draw.rect(newS, (l[1], l[2], l[3], l[4]), pygame.Rect(round(bitmath.exec_math(l[5])), round(bitmath.exec_math(l[6])), round(bitmath.exec_math(l[7])), round(bitmath.exec_math(l[8]))), round(bitmath.exec_math(l[9])))
+	em = lambda n: bitmath.exec_math(n, variables)
+	if l[0] == "rect": pygame.draw.rect(newS, (l[1], l[2], l[3], l[4]), pygame.Rect(round(em(l[5])), round(em(l[6])), round(em(l[7])), round(em(l[8]))), round(em(l[9])))
 	elif l[0] == "fill": newS.fill((l[1], l[2], l[3], l[4]))
-	elif l[0] == "circle": pygame.draw.ellipse(newS, (l[1], l[2], l[3], l[4]), pygame.Rect(bitmath.exec_math(l[5]), bitmath.exec_math(l[6]), bitmath.exec_math(l[7]), bitmath.exec_math(l[8])), bitmath.exec_math(l[9]))
-	elif l[0] == "poly": pygame.draw.polygon(newS, (l[1], l[2], l[3], l[4]), [[bitmath.exec_math(x[0]), bitmath.exec_math(x[1])] for x in l[5]], bitmath.exec_math(l[6]))
-	elif l[0] == "line": pygame.draw.line(newS, (l[1], l[2], l[3], l[4]), (bitmath.exec_math(l[5]), bitmath.exec_math(l[6])), (bitmath.exec_math(l[7]), bitmath.exec_math(l[8])), bitmath.exec_math(l[9]))
+	elif l[0] == "circle": pygame.draw.ellipse(newS, (l[1], l[2], l[3], l[4]), pygame.Rect(em(l[5]), em(l[6]), em(l[7]), em(l[8])), em(l[9]))
+	elif l[0] == "poly": pygame.draw.polygon(newS, (l[1], l[2], l[3], l[4]), [[em(x[0]), em(x[1])] for x in l[5]], em(l[6]))
+	elif l[0] == "line": pygame.draw.line(newS, (l[1], l[2], l[3], l[4]), (em(l[5]), em(l[6])), (em(l[7]), em(l[8])), em(l[9]))
 	return newS # type: ignore
 
 def read_stage(b: bitseq.ReadableBuffer) -> list:
@@ -99,7 +110,9 @@ def exec_stage(l: list, variables: "dict[str, int]") -> pygame.Surface:
 	while i < len(modlist):
 		m = modlist[i]
 		if m[0] == "mod":
-			s = exec_modification(m[1], s)
+			s = exec_modification(m[1], s, variables)
+		elif m[0] == "set":
+			variables[m[1]] = bitmath.exec_math(m[2], variables)
 		elif m[0] == "if":
 			if bitmath.exec_math(m[1], variables) != 0:
 				i = [x[1] for x in modlist].index(m[2])
@@ -119,48 +132,24 @@ if __name__ == "__main__":
 		screen.blit(exec_stage(read_stage(bitseq.ReadableBuffer(bitseq.upload("example.dat"))), {"some_number": 4}), (0, 0))
 		pygame.display.flip()"""
 	r = [
-		[300, 300],
+		[200, 200],
 		[
 			["mod", ["fill", 255, 255, 255, 0]],
-			["mod", ["rect", 200, 200, 255, 255, 	50,  100, 200, 200, 	0]],
-			["mod", ["rect", 50,  0,   10,  255, 	50,  100, 200, 200, 	10]],
-			["mod", ["poly", 200, 200, 255, 255, [[50, 100], [150, 0], [250, 100]], 0]],
-			["mod", ["poly", 50,  0,   10, 	255, [[50, 100], [150, 0], [250, 100]], 10]],
-			# Door
-			["if", ["!", ["<", "personStatus", 61]], "Line314"],
-				["mod", ["rect", 100, 100, 100, 255,	85, 200, 50, 90,  	0]],
-				["mod", ["circle", 0, 0,   0,   255, 	95, 240, 10, 10, 	0]],
-				["if", 1, "Line317"],
-			["tag", "Line314"],
-				["mod", ["rect", 255, 255, 255, 255, 	85, 200, 50, 90, 0]],
-				["mod", ["rect", 100, 100, 100, 255, 	125, 200, 10, 90, 0]],
-			["tag", "Line317"],
-			# Window
-			["if", ["!", ["<", "personStatus", 2]], "Line323"],
-				["if", ["!", ["=", "personStatus", 1]], "Line319A"],
-					["mod", ["rect", 150, 150, 100, 255, 	160, 135, 60, 60, 	0]],
-				["tag", "Line319A"],
-				["if", ["=", "personStatus", 1], "Line319B"],
-					["mod", ["rect",  50,  50,  50, 255, 	160, 135, 60, 60, 	0]],
-				["tag", "Line319B"],
-				# rest
-				["mod", ["rect", 50, 0, 10, 255, 	160, 135,  60,  60, 	10]],
-				["mod", ["line", 50, 0, 10, 255, 	190, 135, 190, 195, 	10]],
-				["mod", ["line", 50, 0, 10, 255, 	160, 165, 220, 165, 	10]],
-				["if", 1, "Line328"],
-			["tag", "Line323"],
-			["if", ["!", ["||", ["<", "personStatus", 15], ["=", "personStatus", 15]]], "Line325"],
-				["mod", ["rect", 50, 0, 10, 255, 	160, 125,  60,  60, 	0]],
-				["if", 1, "Line328"],
-			["tag", "Line325"],
-				["mod", ["rect", 150, 150, 100, 255, 160, 135, 60,  60, 	0]],
-				["mod", ["rect", 50, 0, 10, 255, 	160, 135,  60,  60, 	10]],
-			["tag", "Line328"]
+			["set", "treeX", 50],
+			["set", "treeMod", ["+", 1, ["/", ["*", "x", "x"], ["*", ["*", 1000, 1000], 10]]]],
+			["set", "treeWidth", ["+", ["round", ["*", 30, "treeMod"]], ["*", ["random"], ["round", ["*", 65, "treeMod"]]]]],
+			["set", "treeHeight", ["+", ["round", ["*", 50, "treeMod"]], ["*", ["random"], ["round", ["*", 100, "treeMod"]]]]],
+			["set", "treeHeight", ["+", "treeHeight", ["/", "treeWidth", 2]]],
+			# Base
+			["mod", ["rect", 100, 50,  0, 255, 	"treeX", ["-", 200, "treeHeight"], "treeWidth", "treeHeight", 	 0]],
+			["mod", ["rect",  50,  0, 10, 255,	"treeX", ["-", 200, "treeHeight"], "treeWidth", "treeHeight", 	10]],
+			# Leaves
+			["mod", ["circle", 0, 150, 0, 255, 	["-", ["+", "treeX", ["/", "treeWidth", 2]], 50], ["-", ["-", 200, "treeHeight"], 50], 100, 100, 	0]]
 		]
 	]
-	bitseq.download(write_stage(r), "house.dat")
+	#bitseq.download(write_stage(r), "tree.dat")
 	b = read_stage(bitseq.ReadableBuffer(write_stage(r)))
 	[
-		pygame.image.save(exec_stage(b, {"personStatus": x}), f"images/house{x}.png")
-		for x in range(62)
+		pygame.image.save(exec_stage(b, {"x": x}), f"images2/tree{x}.png")
+		for x in range(0, 1000, 100)
 	]
